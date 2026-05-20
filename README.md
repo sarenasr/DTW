@@ -1,70 +1,118 @@
 # ASL Landmark Time-Series + DTW
 
-This project extracts MediaPipe Holistic landmarks from ASL videos, converts them into time-series features, and optionally compares videos using DTW.
+Extract MediaPipe Holisitc landmarks from ASL videos, convert them to time-series features, and optionally compare videos using DTW.
 
-## What it can do
+## Features
 
-- Extract pose, left hand, right hand (and optional face) landmarks per frame from video files.
-- Normalize hand landmarks to reduce signer position/scale differences (enabled by default).
-- Save raw landmark arrays plus a long-format CSV for analysis.
-- Build compact per-frame DTW feature matrices.
-- Compare videos against a reference and record DTW distances.
-- Generate time-series plots, DTW alignment plots, and side-by-side comparison plots.
+- Extract pose, left/right hand (optional face) landmarks per frame
+- Wrist-centered hand normalization (default)
+- Save raw NumPy arrays and long-format CSV for inspection
+- Build compact per-frame DTW feature matrices
+- Compare videos to a reference and save DTW distances
+- Produce time-series plots, DTW alignment plots, and side-by-side comparisons
 
-## Install
+## Installation
+
+Create and activate a virtual environment (recommended):
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate   # macOS/Linux
+.venv\Scripts\activate     # Windows (Powershell)
 python -m pip install -r requirements.txt
 ```
 
-## Command
+## Quick usage
 
 ```bash
 python asl_landmark_timeseries_dtw.py --input <video_or_folder> --output <output_dir> [options]
 ```
 
-| Option                 | Description                                                                     |
-| ---------------------- | ------------------------------------------------------------------------------- |
-| `--input`              | Path to a video file or a folder containing videos (required).                  |
-| `--output`             | Directory where outputs will be saved (required).                               |
-| `--no-normalize-hands` | Disable wrist-centered hand normalization.                                      |
-| `--include-face`       | Also save face landmarks (outputs become much larger).                          |
-| `--no-csv`             | Skip writing the long-format CSV.                                               |
-| `--plot`               | Save landmark time-series plots as PNG files.                                   |
-| `--show-plots`         | Display plots interactively while processing.                                   |
-| `--compare-to`         | Reference video or `*_dtw_features.npy` for DTW comparison.                     |
-| `--plot-dtw`           | Save DTW accumulated-cost plots with alignment paths (requires `--compare-to`). |
-| `--plot-compare`       | Save side-by-side landmark plots (requires `--compare-to`).                     |
+Important options:
 
-Supported video extensions: `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm`. Folder inputs are searched recursively.
+- `--input` (required): video file or folder
+- `--output` (required): output directory
+- `--no-normalize-hands`: disable hand normalization
+- `--include-face`: include face landmarks (large outputs)
+- `--no-csv`: skip writing the long CSV
+- `--plot`: save time-series PNGs
+- `--show-plots`: display plots interactively
+- `--compare-to`: reference video or `*_dtw_features.npy` for DTW
+- `--plot-dtw`: save DTW accumulated-cost plots (needs `--compare-to`)
+- `--plot-compare`: save side-by-side comparison plots (needs `--compare-to`)
+
+Supported video extensions: `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm`.
 
 ## Examples
 
 ```bash
+# Process a folder
 python asl_landmark_timeseries_dtw.py --input videos --output outputs
+
+# Single video with plots
 python asl_landmark_timeseries_dtw.py --input videos/hello_01.mp4 --output outputs --plot
-python asl_landmark_timeseries_dtw.py --input videos --output outputs --plot --compare-to outputs/Hello_dtw_features.npy
-python asl_landmark_timeseries_dtw.py --input videos --output outputs --compare-to videos/Hello.mp4 --plot-dtw
-python asl_landmark_timeseries_dtw.py --input videos/Today.mp4 --output outputs --compare-to outputs/Hello_dtw_features.npy --plot-compare
+
+# Compare to precomputed features
+python asl_landmark_timeseries_dtw.py --input videos --output outputs --compare-to outputs/Hello_dtw_features.npy --plot-dtw
+
+# Compare to a reference video and save side-by-side plots
+python asl_landmark_timeseries_dtw.py --input videos/Today.mp4 --output outputs --compare-to videos/Hello.mp4 --plot-compare
 ```
 
 ## Outputs
 
-When processing a video named `<stem>.mp4`, the output directory can include:
+When processing `<stem>.mp4`, outputs in `<output_dir>` may include:
 
-| Output file                          | When it appears             | Description                                                             |
-| ------------------------------------ | --------------------------- | ----------------------------------------------------------------------- | -------- | -------------------------------------------- | ---------------- | ------------------------------- |
-| `<stem>_pose.npy`                    | Always                      | Pose landmarks per frame, shape `(T, 33, 4)`.                           |
-| `<stem>_left_hand.npy`               | Always                      | Left-hand landmarks per frame, shape `(T, 21, 4)`.                      |
-| `<stem>_right_hand.npy`              | Always                      | Right-hand landmarks per frame, shape `(T, 21, 4)`.                     |
-| `<stem>_face.npy`                    | `--include-face`            | Face landmarks per frame, shape `(T, 468, 4)`.                          |
-| `<stem>_dtw_features.npy`            | Always                      | DTW-ready feature matrix, shape `(T, D)`.                               |
-| `<stem>_landmarks_long.csv`          | Default (unless `--no-csv`) | Long-format CSV: `video, frame, group, landmark_id, coordinate, value`. |
-| `<stem>_left_hand_{x                 | y                           | z}\_timeseries.png`                                                     | `--plot` | Hand landmark coordinate plots (left hand).  |
-| `<stem>_right_hand_{x                | y                           | z}\_timeseries.png`                                                     | `--plot` | Hand landmark coordinate plots (right hand). |
-| `<stem>_pose_{x                      | y                           | z}\_timeseries.png`                                                     | `--plot` | Pose landmark coordinate plots.              |
-| `<target>_vs_<reference>_dtw.png`    | `--plot-dtw`                | DTW accumulated-cost plot with alignment path.                          |
-| `<target>_vs_<reference>\_{left_hand | right_hand                  | pose}\_{x                                                               | y        | z}\_side_by_side.png`                        | `--plot-compare` | Side-by-side time-series plots. |
-| `dtw_comparisons.csv`                | `--compare-to`              | Aggregate DTW distances across processed videos.                        |
+- `<stem>_pose.npy` — Pose array `(T, 33, 4)`
+- `<stem>_left_hand.npy` — Left hand `(T, 21, 4)`
+- `<stem>_right_hand.npy` — Right hand `(T, 21, 4)`
+- `<stem>_face.npy` — Face `(T, 468, 4)` (if `--include-face`)
+- `<stem>_dtw_features.npy` — DTW-ready matrix `(T, D)`
+- `<stem>_landmarks_long.csv` — Long-format CSV (`video,frame,group,landmark_id,coordinate,value`)
+- `*_timeseries.png` — Time-series plots when `--plot` is used
+- `*_vs_*_dtw.png` — DTW cost/alignment plots when `--plot-dtw` is used
+- `*_vs_*_..._side_by_side.png` — Side-by-side plots when `--plot-compare` is used
+- `dtw_comparisons.csv` — Aggregated DTW distances (when `--compare-to` used)
 
-If `--compare-to` points to a video file, the reference video is also processed and saved into the output directory.
+If `--compare-to` points to a video, the reference is processed and saved as well.
+
+## Contributing & Git cleanup
+
+To avoid committing large generated files, add these to `.gitignore` (example included in repo):
+
+```
+.venv/
+venv/
+.venv-dtw/
+outputs/
+outputs.zip
+videos/
+__pycache__/
+*.pyc
+```
+
+If large files were accidentally committed:
+
+- Remove them from tracking (keeps them locally):
+
+```bash
+git rm -r --cached outputs videos .venv-dtw
+git commit -m "Remove generated files from tracking"
+```
+
+- To fully remove them from history (use with caution), use `git filter-repo` or BFG:
+
+```bash
+# backup first
+git branch backup
+# then run one of the history-rewrite tools (not shown here)
+```
+
+## Notes
+
+- For comparisons across different signers, hand normalization helps reduce scale/translation effects.
+- The DTW feature matrix is a starting point — experiment with features for better results.
+
+---
+
+If you want additional sections (license, examples with plots, or a troubleshooting guide), say which and a one-line note about what to include.
