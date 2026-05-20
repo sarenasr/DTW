@@ -5,4 +5,3 @@ mediapipe==0.10.21
 pandas==2.2.2
 matplotlib==3.9.2
 tqdm==4.66.5
-dtw-python==1.7.4

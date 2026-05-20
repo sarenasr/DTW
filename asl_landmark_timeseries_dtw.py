@@ -25,7 +25,7 @@ project/
   asl_landmark_timeseries_dtw.py
 
 Install:
-  pip install opencv-python mediapipe numpy pandas matplotlib tqdm dtw-python
+  pip install opencv-python mediapipe numpy pandas matplotlib tqdm
 
 Run examples:
   python asl_landmark_timeseries_dtw.py --input videos --output outputs
@@ -33,6 +33,7 @@ Run examples:
   python asl_landmark_timeseries_dtw.py --input videos --output outputs --plot --compare-to outputs/Hello_dtw_features.npy
   python asl_landmark_timeseries_dtw.py --input videos --output outputs --compare-to videos/Hello.mp4 --plot-dtw
   python asl_landmark_timeseries_dtw.py --input videos/Today.mp4 --output outputs --compare-to outputs/Hello_dtw_features.npy --plot-compare
+  python dtw_compare_library.py --reference outputs/Hello_dtw_features.npy --targets outputs/Today_dtw_features.npy --plot-dtw
 
 Notes for DTW:
 - For early experiments, hand landmarks are usually more useful than face landmarks.
@@ -43,9 +44,8 @@ Notes for DTW:
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import cv2
 import mediapipe as mp
@@ -53,11 +53,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-
-try:
-    from dtw import dtw as dtw_align
-except ImportError:
-    dtw_align = None
 
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
@@ -332,17 +327,16 @@ def make_dtw_feature_matrix(
     return features.astype(np.float32)
 
 
-def compute_dtw_alignment(
-    reference: np.ndarray,
-    target: np.ndarray,
-    keep_internals: bool,
-) -> Tuple[float, Optional[np.ndarray], Optional[np.ndarray]]:
+def compute_dtw_accumulated_cost(
+    reference: np.ndarray, target: np.ndarray
+) -> np.ndarray:
     """
-    Compute DTW distance (and optionally the accumulated cost matrix + path).
-    """
-    if dtw_align is None:
-        raise RuntimeError("dtw-python is required. Install it with: pip install dtw-python")
+    Compute the accumulated DTW cost matrix.
 
+    Shapes:
+        reference: (T_ref, D)
+        target:    (T_tgt, D)
+    """
     if reference.ndim != 2 or target.ndim != 2:
         raise ValueError("DTW inputs must be 2D arrays: (time, features).")
     if reference.shape[1] != target.shape[1]:
@@ -352,25 +346,59 @@ def compute_dtw_alignment(
     if reference.shape[0] == 0 or target.shape[0] == 0:
         raise ValueError("DTW inputs must have at least one frame.")
 
-    alignment = dtw_align(
-        reference,
-        target,
-        dist_method="euclidean",
-        keep_internals=keep_internals,
-        distance_only=not keep_internals,
-    )
+    ref_len, tgt_len = reference.shape[0], target.shape[0]
+    acc = np.full((ref_len, tgt_len), np.inf, dtype=np.float32)
 
-    distance = float(alignment.distance)
-    if not keep_internals:
-        return distance, None, None
+    def frame_cost(i: int, j: int) -> float:
+        return float(np.linalg.norm(reference[i] - target[j]))
 
-    cost_matrix = alignment.costMatrix
-    path = np.column_stack((alignment.index1, alignment.index2))
-    return distance, cost_matrix, path
+    acc[0, 0] = frame_cost(0, 0)
+    for i in range(1, ref_len):
+        acc[i, 0] = acc[i - 1, 0] + frame_cost(i, 0)
+    for j in range(1, tgt_len):
+        acc[0, j] = acc[0, j - 1] + frame_cost(0, j)
+
+    for i in range(1, ref_len):
+        for j in range(1, tgt_len):
+            acc[i, j] = frame_cost(i, j) + min(
+                acc[i - 1, j], acc[i, j - 1], acc[i - 1, j - 1]
+            )
+
+    return acc
+
+
+def backtrack_dtw_path(acc_cost: np.ndarray) -> np.ndarray:
+    """Backtrack the optimal DTW path from an accumulated cost matrix."""
+    if acc_cost.ndim != 2:
+        raise ValueError("DTW accumulated cost must be a 2D array.")
+
+    i, j = acc_cost.shape[0] - 1, acc_cost.shape[1] - 1
+    path = [(i, j)]
+
+    while i > 0 or j > 0:
+        if i == 0:
+            j -= 1
+        elif j == 0:
+            i -= 1
+        else:
+            step = np.argmin(
+                [acc_cost[i - 1, j], acc_cost[i, j - 1], acc_cost[i - 1, j - 1]]
+            )
+            if step == 0:
+                i -= 1
+            elif step == 1:
+                j -= 1
+            else:
+                i -= 1
+                j -= 1
+        path.append((i, j))
+
+    path.reverse()
+    return np.array(path, dtype=np.int32)
 
 
 def plot_dtw_alignment(
-    cost_matrix: np.ndarray,
+    acc_cost: np.ndarray,
     path: np.ndarray,
     output_path: Path,
     reference_label: str,
@@ -378,7 +406,7 @@ def plot_dtw_alignment(
 ) -> None:
     """Save a DTW accumulated-cost heatmap with the alignment path."""
     plt.figure(figsize=(7, 6))
-    plt.imshow(cost_matrix.T, origin="lower", aspect="auto", cmap="magma")
+    plt.imshow(acc_cost.T, origin="lower", aspect="auto", cmap="magma")
     plt.plot(path[:, 0], path[:, 1], color="cyan", linewidth=1.0)
     plt.xlabel(f"Reference frames ({reference_label})")
     plt.ylabel(f"Target frames ({target_label})")
@@ -711,8 +739,6 @@ def main() -> None:
     reference_label = None
     reference_landmarks = None
     if args.compare_to:
-        if dtw_align is None:
-            raise RuntimeError("dtw-python is required. Install it with: pip install dtw-python")
         compare_to_path = Path(args.compare_to)
         if not compare_to_path.exists():
             raise FileNotFoundError(f"Reference path does not exist: {compare_to_path}")
@@ -757,11 +783,8 @@ def main() -> None:
         )
 
         if reference_features is not None:
-            dtw_distance, cost_matrix, path = compute_dtw_alignment(
-                reference_features,
-                dtw_features,
-                keep_internals=args.plot_dtw,
-            )
+            acc_cost = compute_dtw_accumulated_cost(reference_features, dtw_features)
+            dtw_distance = float(acc_cost[-1, -1])
             comparisons.append(
                 {
                     "reference": reference_label,
@@ -773,8 +796,9 @@ def main() -> None:
             )
 
             if args.plot_dtw:
+                path = backtrack_dtw_path(acc_cost)
                 plot_dtw_alignment(
-                    cost_matrix,
+                    acc_cost,
                     path,
                     output_dir / f"{video_path.stem}_vs_{reference_label}_dtw.png",
                     reference_label=reference_label,
