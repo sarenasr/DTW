@@ -1,9 +1,11 @@
 venv/
 .venv/
+.venv-dtw/
 outputs/
 outputs.zip
 videos/
 __pycache__/
 *.pyc
-*.ipynb_checkpoints/
-.vnevn/
+*.pyo
+*.egg-info/
+.DS_Store
